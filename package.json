@@ -1,6 +1,6 @@
 {
   "name": "pi-herdr-orchestrator-guard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pi extension enforcing Herdr-only orchestration: main sessions become pure orchestrators delegating exclusively through Herdr subagent tools.",
   "type": "module",
   "keywords": ["pi-package", "pi", "herdr", "orchestration", "guard", "subagents"],

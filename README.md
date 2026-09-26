@@ -5,18 +5,26 @@ session becomes a pure orchestrator: it may only delegate through Herdr subagent
 tools plus a bounded read-only toolset, and every delegation must follow a strict
 task structure. Child sessions keep their execution tools.
 
-## Install
+## Requirements & Install
 
-From GitHub (after publication):
+### 1. Install Herdr first (required)
+
+This guard is a policy layer on top of [pi-herdr-agents](https://github.com/giuseppecrj/pi-herdr-agents):
+it validates the orchestrator's delegated calls, but it does **not** ship or
+install Herdr itself. pi-herdr-agents must be installed and active before the
+guard has anything to enforce against:
 
 ```bash
-pi install git:github.com/NickPittas/pi-herdr-orchestrator-guard@v0.1.0
+pi install npm:pi-herdr-agents
 ```
 
-Or from npm once published:
+Confirm it is active with `pi list` — you should see `pi-herdr-agents` among the
+installed packages.
+
+### 2. Install the guard
 
 ```bash
-pi install npm:pi-herdr-orchestrator-guard
+pi install git:github.com/NickPittas/pi-herdr-orchestrator-guard@v0.1.1
 ```
 
 To try it without installing:
