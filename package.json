@@ -1,0 +1,22 @@
+{
+  "name": "pi-herdr-orchestrator-guard",
+  "version": "0.1.0",
+  "description": "Pi extension enforcing Herdr-only orchestration: main sessions become pure orchestrators delegating exclusively through Herdr subagent tools.",
+  "type": "module",
+  "keywords": ["pi-package", "pi", "herdr", "orchestration", "guard", "subagents"],
+  "license": "MIT",
+  "author": "NickPittas",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NickPittas/pi-herdr-orchestrator-guard.git"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test.ts"
+  }
+}
