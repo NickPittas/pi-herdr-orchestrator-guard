@@ -8,8 +8,7 @@ import { join } from "node:path";
 import { after, describe, it } from "node:test";
 
 import {
-	CHILD_DENIED_TOOLS,
-	MAIN_ALLOWED_TOOLS,
+	NON_HERDR_AGENT_TOOLS,
 	PROTOCOL_SECTION,
 	REQUIRED_SECTIONS,
 	decideToolCall,
@@ -207,17 +206,17 @@ describe("decideToolCall — main session, enabled", () => {
 		}
 	});
 
-	it("blocks shell and file mutation tools", () => {
-		for (const tool of ["bash", "powershell", "edit", "write"]) {
-			const decision = decideToolCall(tool, ctx);
-			assert.equal(decision.action, "block", tool);
-			assert.match((decision as any).reason, /not on the main-session allowlist/);
+	it("allows ordinary tools: shell, edits/writes, MCP and unknown general tools", () => {
+		for (const tool of ["bash", "powershell", "edit", "write", "mcp", "mcpScript", "ls", "lsp_rename", "code_rewrite", "totally_unknown_tool"]) {
+			assert.equal(decideToolCall(tool, ctx).action, "allow", tool);
 		}
 	});
 
-	it("blocks MCP, alternate spawners and unknown/wrapper tools", () => {
-		for (const tool of ["mcp", "mcpScript", "agent", "Agent", "subagent_workflow", "SubagentWorkflow", "task", "delegate", "ls", "lsp_rename", "code_rewrite", "totally_unknown_tool"]) {
-			assert.equal(decideToolCall(tool, ctx).action, "block", tool);
+	it("blocks known non-Herdr agent tools by exact case-insensitive name", () => {
+		for (const tool of ["agent", "Agent", "AGENT", "subagentworkflow", "SubagentWorkflow", "task", "Task", "delegate", "Delegate"]) {
+			const decision = decideToolCall(tool, ctx);
+			assert.equal(decision.action, "block", tool);
+			assert.match((decision as any).reason, /non-Herdr agent tool/);
 		}
 	});
 
@@ -254,7 +253,7 @@ describe("decideToolCall — child sessions (PI_SUBAGENT_ID set)", () => {
 	});
 
 	it("rejects known alternate agent tools", () => {
-		for (const tool of [...CHILD_DENIED_TOOLS]) {
+		for (const tool of [...NON_HERDR_AGENT_TOOLS]) {
 			assert.equal(decideToolCall(tool, ctx).action, "block", tool);
 			assert.equal(decideToolCall(tool.toUpperCase(), ctx).action, "block", tool);
 		}
@@ -265,16 +264,9 @@ describe("decideToolCall — child sessions (PI_SUBAGENT_ID set)", () => {
 	});
 });
 
-describe("allowlist size stays explicit and small", () => {
-	it("main allowlist has exactly the agreed tools", () => {
-		assert.deepEqual(
-			[...MAIN_ALLOWED_TOOLS].sort(),
-			[
-				"ask_user_question", "code_overview", "fffind", "ffgrep", "find", "grep", "jev",
-				"lsp_definition", "lsp_diagnostics", "lsp_hover", "lsp_references", "lsp_symbols",
-				"read", "subagent", "subagent_interrupt", "subagent_send", "subagent_stop", "subagents_list",
-			].sort(),
-		);
+describe("non-Herdr agent tool denial set stays explicit and small", () => {
+	it("exactly the known alternate spawners, lowercase for case-insensitive matching", () => {
+		assert.deepEqual([...NON_HERDR_AGENT_TOOLS].sort(), ["agent", "delegate", "subagentworkflow", "task"]);
 	});
 });
 
@@ -323,9 +315,14 @@ describe("mocked hook integration (index.ts)", () => {
 		assert.equal(bad.block, true);
 		assert.match(bad.reason, /'name' must match/);
 
-		// shell blocked in main
+		// ordinary shell/edits stay allowed in main; non-Herdr agent tools blocked by name
 		const shell = dispatch("tool_call", { type: "tool_call", toolCallId: "2", toolName: "bash", input: { command: "rm -rf /" } });
-		assert.equal(shell.block, true);
+		assert.equal(shell, undefined);
+		const editCall = dispatch("tool_call", { type: "tool_call", toolCallId: "2b", toolName: "edit", input: { path: "a.ts" } });
+		assert.equal(editCall, undefined);
+		const agentTool = dispatch("tool_call", { type: "tool_call", toolCallId: "2c", toolName: "Agent", input: {} });
+		assert.equal(agentTool.block, true);
+		assert.match(agentTool.reason, /non-Herdr agent tool/);
 
 		// valid spawn passes the hook
 		const ok = dispatch("tool_call", { type: "tool_call", toolCallId: "3", toolName: "subagent", input: { agent: "worker", name: "auth-build-1", task: GOOD_TASK } });
@@ -347,7 +344,7 @@ describe("mocked hook integration (index.ts)", () => {
 		const evt4 = mkEvt();
 		dispatch("before_agent_start", evt4);
 		assert.match(evt4.systemPromptOptions.sections["herdr_orchestrator_guard"], /subagent_send/);
-		assert.equal(dispatch("tool_call", { type: "tool_call", toolCallId: "5", toolName: "bash", input: {} }).block, true);
+		assert.equal(dispatch("tool_call", { type: "tool_call", toolCallId: "5", toolName: "bash", input: {} }), undefined);
 		assert.deepEqual(loadState(stateFile), { enabled: true });
 
 		// status and usage messages
@@ -382,10 +379,15 @@ describe("mocked hook integration (index.ts)", () => {
 		}
 	});
 
-	it("PROTOCOL_SECTION lists the template sections and the omit-model instruction", () => {
+	it("PROTOCOL_SECTION prefers delegation without claiming a pure orchestrator", () => {
 		for (const section of REQUIRED_SECTIONS) assert.match(PROTOCOL_SECTION, new RegExp(section));
+		assert.match(PROTOCOL_SECTION, /prefer Herdr delegation for substantial independent work/);
+		assert.match(PROTOCOL_SECTION, /ordinary tools are not blocked/);
+		assert.match(PROTOCOL_SECTION, /agent, SubagentWorkflow, task, delegate/);
 		assert.match(PROTOCOL_SECTION, /Omit 'model'/);
 		assert.match(PROTOCOL_SECTION, /poteto/);
+		assert.doesNotMatch(PROTOCOL_SECTION, /pure orchestrator/);
+		assert.doesNotMatch(PROTOCOL_SECTION, /blocked in this session/);
 	});
 });
 

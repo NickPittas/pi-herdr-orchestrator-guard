@@ -39,44 +39,15 @@ export const REQUIRED_SECTIONS = [
 ] as const;
 
 /**
- * Exact default-deny allowlist for MAIN sessions when the guard is enabled:
- * Herdr orchestration tools + bounded read-only search/read + LSP diagnostic
- * navigation + ask_user_question + jev. Deliberately small — everything else
- * (shell, edits/writes, MCP, alternate spawners, unknown tools) is blocked.
- */
-export const MAIN_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
-	// Herdr orchestration
-	"subagent",
-	"subagent_send",
-	"subagent_stop",
-	"subagent_interrupt",
-	"subagents_list",
-	// read-only inspection
-	"read",
-	"grep",
-	"find",
-	"fffind",
-	"ffgrep",
-	// LSP diagnostic-navigation (read-only; excludes lsp_rename/lsp_code_actions/code_rewrite)
-	"lsp_diagnostics",
-	"lsp_definition",
-	"lsp_hover",
-	"lsp_references",
-	"lsp_symbols",
-	"code_overview",
-	// user interaction / judgment primitives
-	"ask_user_question",
-	"jev",
-]);
-
-/**
- * Known alternate (non-Herdr) agent-spawning tools denied in CHILD sessions.
- * Children keep their execution tools; only these alternate spawners are
- * rejected. Herdr's own subagent tools stay available because poteto and
+ * Known alternate (non-Herdr) agent-spawning tools, denied by exact
+ * case-insensitive tool name in MAIN and CHILD sessions. Everything ordinary
+ * (edit, write, bash, read, MCP, unknown general tools) stays available so the
+ * main session can handle small tasks directly; only these alternate spawners
+ * are rejected. Herdr's own subagent tools stay available because poteto and
  * adversarial-reviewer legitimately delegate through Herdr, and Herdr's own
  * controls (self-spawn prevention, agent `spawning` defaults) govern that.
  */
-export const CHILD_DENIED_TOOLS: ReadonlySet<string> = new Set([
+export const NON_HERDR_AGENT_TOOLS: ReadonlySet<string> = new Set([
 	"agent",
 	"subagentworkflow",
 	"task",
@@ -102,27 +73,22 @@ export function decideToolCall(toolName: string, ctx: ToolContext): ToolDecision
 
 	if (toolName === "subagent_resume") return { action: "block", reason: RESUME_REASON };
 
-	if (ctx.isChild) {
-		// Children keep their execution tools; only known alternate spawners are denied.
-		if (CHILD_DENIED_TOOLS.has(toolName.toLowerCase())) {
-			return {
-				action: "block",
-				reason:
-					`Blocked by herdr-orchestrator-guard: '${toolName}' is a non-Herdr agent tool. ` +
-					"Children must delegate through Herdr (subagent, subagent_send, ...) if delegation is part of their role.",
-			};
-		}
-		return { action: "allow" };
+	// One rule set for main and child sessions: ordinary tools (edit, write,
+	// bash, read, MCP, unknown general tools) stay available so the main session
+	// can handle small tasks directly; only known non-Herdr agent tools are
+	// denied, by exact case-insensitive tool name.
+	if (NON_HERDR_AGENT_TOOLS.has(toolName.toLowerCase())) {
+		return {
+			action: "block",
+			reason: ctx.isChild
+				? `Blocked by herdr-orchestrator-guard: '${toolName}' is a non-Herdr agent tool. ` +
+					"Children must delegate through Herdr (subagent, subagent_send, ...) if delegation is part of their role."
+				: `Blocked by herdr-orchestrator-guard: '${toolName}' is a non-Herdr agent tool. ` +
+					"Delegate substantial independent work through Herdr (subagent, subagent_send); small direct tasks need no delegation. " +
+					"The user can disable with /herdr-guard off.",
+		};
 	}
-
-	if (MAIN_ALLOWED_TOOLS.has(toolName)) return { action: "allow" };
-	return {
-		action: "block",
-		reason:
-			`Blocked by herdr-orchestrator-guard: '${toolName}' is not on the main-session allowlist ` +
-			"(Herdr orchestration tools, read/grep/find/fffind/ffgrep, LSP diagnostic navigation, ask_user_question, jev). " +
-			"Delegate execution work through Herdr `subagent`. The user can disable with /herdr-guard off.",
-	};
+	return { action: "allow" };
 }
 
 /** <slug>-<role>[-n], e.g. herdrguard-build-2, auth-api, ui-review-3. */
@@ -270,8 +236,9 @@ export function saveState(filePath: string, enabled: boolean): void {
 }
 
 /** Short protocol injected into the MAIN session system prompt (section add, not a full override). */
-export const PROTOCOL_SECTION = `Herdr-only orchestration is enforced by herdr-orchestrator-guard.
-- Delegate exclusively through Herdr tools: subagent, subagent_send, subagent_stop, subagent_interrupt, subagents_list. Shell, file edits/writes, MCP, and all other spawning tools are blocked in this session.
+export const PROTOCOL_SECTION = `herdr-orchestrator-guard is active: prefer Herdr delegation for substantial independent work, and handle small fixes, shell commands, and inspection directly — ordinary tools are not blocked.
+- Delegate via Herdr tools: subagent, subagent_send, subagent_stop, subagent_interrupt, subagents_list.
+- Non-Herdr agent tools are blocked by name: agent, SubagentWorkflow, task, delegate. Use Herdr subagent instead.
 - subagent: agent must be ${HERDR_AGENTS.join("|")}; name must be <slug>-<role>[-n] with role in ${TASK_ROLES.join("|")}.
 - Every task (and subagent_send message) must contain substantive labelled sections: ${REQUIRED_SECTIONS.join(", ")}.
 - Never pass model, systemPrompt, tools, or skills overrides. Omit 'model' to use current Herdr defaults.

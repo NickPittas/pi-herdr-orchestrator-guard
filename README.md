@@ -1,9 +1,10 @@
 # pi-herdr-orchestrator-guard
 
-Pi extension enforcing **Herdr-only orchestration**. When enabled, the main
-session becomes a pure orchestrator: it may only delegate through Herdr subagent
-tools plus a bounded read-only toolset, and every delegation must follow a strict
-task structure. Child sessions keep their execution tools.
+Pi extension guarding **Herdr orchestration**. When enabled, the main session is
+guided to delegate substantial independent work through Herdr while keeping its
+ordinary tools (edit, write, bash, read, MCP, ...) for small direct tasks.
+Known non-Herdr agent tools are denied by name, Herdr delegations are strictly
+validated, and child sessions keep their execution tools.
 
 ## Requirements & Install
 
@@ -24,8 +25,12 @@ installed packages.
 ### 2. Install the guard
 
 ```bash
-pi install git:github.com/NickPittas/pi-herdr-orchestrator-guard@v0.1.1
+pi install git:github.com/NickPittas/pi-herdr-orchestrator-guard@v0.1.2
 ```
+
+> **Note:** the `v0.1.2` tag does not exist yet — install only once it has been
+> published to the remote. Until then, `v0.1.1` remains the latest installable
+> tag (with the older default-deny policy).
 
 To try it without installing:
 
@@ -56,18 +61,19 @@ Toggles take effect immediately — no reload needed.
 
 ### Main sessions (no `PI_SUBAGENT_ID`)
 
-Exact default-deny allowlist — everything not listed is blocked:
+Main sessions keep their ordinary tools — `edit`, `write`, `bash`/`powershell`,
+`read`/`grep`/`find`/..., MCP tools, and any unknown general tool all pass
+through. The guard only denies:
 
-- **Herdr orchestration**: `subagent`, `subagent_send`, `subagent_stop`,
-  `subagent_interrupt`, `subagents_list`
-- **Read-only inspection**: `read`, `grep`, `find`, `fffind`, `ffgrep`
-- **LSP diagnostic navigation**: `lsp_diagnostics`, `lsp_definition`, `lsp_hover`,
-  `lsp_references`, `lsp_symbols`, `code_overview`
-- **Interaction / judgment**: `ask_user_question`, `jev`
+- **Known non-Herdr agent tools** by exact case-insensitive name: `agent`,
+  `SubagentWorkflow`, `task`, `delegate`. Delegate through Herdr instead.
+- **`subagent_resume`** always: session provenance cannot be reliably proven,
+  so spawn a fresh named agent instead.
 
-Explicitly blocked: `bash`/`powershell`, `edit`/`write`, `mcp`/`mcpScript`,
-alternate spawners (`agent`, `SubagentWorkflow`, ...), `lsp_rename`/`lsp_code_actions`/
-`code_rewrite`, `subagent_resume`, and any unknown tool.
+Delegation is *preferred* for substantial independent work, not forced for every
+line: small fixes, inspection, and shell tasks are fine directly. The injected
+protocol (below) states this guidance; the runtime enforcement is the two
+denials above plus the validation below.
 
 `subagent` calls are validated:
 
@@ -88,13 +94,10 @@ alternate spawners (`agent`, `SubagentWorkflow`, ...), `lsp_rename`/`lsp_code_ac
 `subagent_send` messages get the same section-structure validation and must
 address the specialist via `id` or `name`.
 
-`subagent_resume` is always blocked: session provenance cannot be reliably
-proven, so spawn a fresh named agent instead.
-
 ### Child sessions (`PI_SUBAGENT_ID` set)
 
-Children **keep their execution tools** (`bash`, `edit`, `write`, ...). Only known
-alternate (non-Herdr) agent tools are denied (`agent`, `SubagentWorkflow`, `task`,
+Children **keep their execution tools** (`bash`, `edit`, `write`, ...). The same
+known non-Herdr agent tools are denied (`agent`, `SubagentWorkflow`, `task`,
 `delegate`, case-insensitive). This is deliberately *not* an all-leaf policy:
 `poteto` and `adversarial-reviewer` legitimately delegate through Herdr, and
 Herdr's own controls (self-spawn prevention, agent `spawning` defaults) decide
@@ -105,14 +108,17 @@ whether spawning is allowed.
 A short protocol section (`herdr_orchestrator_guard`) is injected via
 `before_agent_start` on **every** main-session run (Pi rebuilds prompt sections
 per run, so a once-only flag would silently lose it) and removed while disabled
-or in child sessions. The entire system prompt is **never** overridden.
+or in child sessions. It instructs the main session to prefer Herdr delegation
+for substantial independent work, names the blocked non-Herdr agent tools
+explicitly, and carries the delegation-structure rules. The entire system
+prompt is **never** overridden.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `index.ts` | Extension factory: `/herdr-guard` command, `tool_call` interception, protocol injection |
-| `policy.ts` | Pure validation/allowlist logic (no Pi imports) |
+| `policy.ts` | Pure validation/decision logic (no Pi imports) |
 | `test.ts` | Unit + mocked-hook integration tests |
 | `state.json` | Extension-owned persisted on/off state; created at runtime on first toggle, gitignored, never shipped |
 
@@ -130,6 +136,13 @@ node --experimental-strip-types --test test.ts
   permissions as Pi. It blocks tool calls by name; it cannot contain arbitrary
   code execution. A determined model that finds an unblocked escape hatch (or a
   tool renamed by another extension) bypasses it.
+- **Indirect spawns through shell/MCP are not interceptable.** Enforcement is
+  tool-name based: it denies the `agent`/`SubagentWorkflow`/`task`/`delegate`
+  *tools*, but it cannot provably intercept a non-Herdr agent spawned
+  indirectly — e.g. a `bash` command that launches another CLI, or an MCP tool
+  that spawns a model call. Naive shell-content regexes would block everyday
+  code strings, so none is attempted. Treat shell/MCP escape hatches as out of
+  scope for this guard.
 - **Same-name tools are trusted.** Blocking and validation are by tool *name*
   and argument shape. If another extension registers a tool with an allowlisted
   name but different behavior, the guard cannot prove ownership and will trust it.
@@ -141,10 +154,6 @@ node --experimental-strip-types --test test.ts
 - **Unknown internal invocations.** The guard makes no guarantees about agent
   invocations that do not go through Pi's `tool_call` event (e.g. nested model
   calls, external CLIs launched outside Pi, future Herdr spawn paths).
-- `ls` is not on the allowlist (kept intentionally small per policy); read-only
-  file inspection is available via `read`/`grep`/`find`/`fffind`/`ffgrep`.
-- `ast_search` (pi-lsp-extension) is not allowlisted; add it to
-  `MAIN_ALLOWED_TOOLS` in `policy.ts` if you want it.
 
 ## License
 

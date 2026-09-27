@@ -1,10 +1,13 @@
-// herdr-orchestrator-guard — global Pi extension enforcing Herdr-only orchestration.
+// herdr-orchestrator-guard — global Pi extension guarding Herdr orchestration.
 //
-// Main sessions (no PI_SUBAGENT_ID): exact default-deny tool allowlist (Herdr
-// orchestration tools + bounded read-only inspection + ask_user_question + jev),
-// strict validation of subagent/subagent_send calls, and a short injected protocol.
-// Child sessions (PI_SUBAGENT_ID set): keep execution tools; only known alternate
-// (non-Herdr) agent tools are denied. Herdr's own spawning controls stay authoritative.
+// Main sessions (no PI_SUBAGENT_ID): guided to prefer Herdr delegation for
+// substantial independent work; ordinary tools (edit/write/bash/read/MCP, and
+// unknown general tools) stay available for small direct tasks. Known non-Herdr
+// agent tools (agent, SubagentWorkflow, task, delegate) are denied by exact
+// case-insensitive tool name, subagent_resume is blocked (provenance cannot be
+// proven), and subagent/subagent_send calls are strictly validated.
+// Child sessions (PI_SUBAGENT_ID set): keep execution tools; the same non-Herdr
+// agent-tool denial applies. Herdr's own spawning controls stay authoritative.
 //
 // User control: /herdr-guard on|off|status — persisted to state.json next to this file.
 // This is policy, not a sandbox: see README.md limitations.
@@ -62,7 +65,7 @@ export default function herdrOrchestratorGuard(pi: ExtensionAPI, statePathOverri
 	});
 
 	pi.registerCommand("herdr-guard", {
-		description: "Herdr-only orchestration guard: /herdr-guard on|off|status",
+		description: "Herdr orchestration guard: /herdr-guard on|off|status",
 		handler: async (args, ctx) => {
 			const arg = args.trim().toLowerCase();
 			if (arg === "on" || arg === "off") {
@@ -85,7 +88,8 @@ export default function herdrOrchestratorGuard(pi: ExtensionAPI, statePathOverri
 				notify(
 					ctx,
 					`herdr-guard is ${state.enabled ? "ENABLED" : "DISABLED"} (default: enabled). ` +
-						"Main sessions are limited to Herdr orchestration + read-only tools. Usage: /herdr-guard on|off|status.",
+						"Known non-Herdr agent tools (agent, SubagentWorkflow, task, delegate) are blocked by name; " +
+						"Herdr subagent calls are validated. Usage: /herdr-guard on|off|status.",
 				);
 			} else {
 				notify(ctx, "Usage: /herdr-guard on|off|status", "warning");
