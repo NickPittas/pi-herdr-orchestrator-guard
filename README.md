@@ -28,10 +28,6 @@ installed packages.
 pi install git:github.com/NickPittas/pi-herdr-orchestrator-guard@v0.1.2
 ```
 
-> **Note:** the `v0.1.2` tag does not exist yet — install only once it has been
-> published to the remote. Until then, `v0.1.1` remains the latest installable
-> tag (with the older default-deny policy).
-
 To try it without installing:
 
 ```bash
